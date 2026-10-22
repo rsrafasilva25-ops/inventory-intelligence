@@ -1,0 +1,49 @@
+
+-- =====================================================
+-- INVENTORY INTELLIGENCE
+-- Arquivo: 03_validacao_qualidade.sql
+-- Objetivo: Identificar inconsistências nas reposições
+-- =====================================================
+
+SELECT
+    r.reposicao_id,
+    p.nome_produto,
+    r.quantidade_pedida,
+    r.quantidade_recebida,
+    r.status,
+    r.data_pedido,
+    r.data_recebimento,
+    CASE
+        WHEN r.quantidade_recebida > r.quantidade_pedida
+            THEN 'ERRO: RECEBIMENTO ACIMA DO PEDIDO'
+
+        WHEN r.quantidade_recebida < 0
+            THEN 'ERRO: QUANTIDADE RECEBIDA NEGATIVA'
+
+        WHEN r.quantidade_pedida <= 0
+            THEN 'ERRO: QUANTIDADE PEDIDA INVALIDA'
+
+        WHEN r.data_recebimento < r.data_pedido
+            THEN 'ERRO: DATA DE RECEBIMENTO INVALIDA'
+
+        WHEN r.status = 'RECEBIDA'
+         AND r.quantidade_recebida < r.quantidade_pedida
+            THEN 'ERRO: STATUS RECEBIDA COM SALDO PENDENTE'
+
+        WHEN r.status = 'PENDENTE'
+         AND r.quantidade_recebida > 0
+            THEN 'ERRO: STATUS PENDENTE COM RECEBIMENTO'
+
+        WHEN r.status = 'RECEBIDA'
+         AND r.data_recebimento IS NULL
+            THEN 'ERRO: DATA DE RECEBIMENTO AUSENTE'
+
+        ELSE 'OK'
+    END AS resultado_validacao
+
+FROM inventory.reposicoes r
+
+INNER JOIN inventory.produtos p
+    ON r.produto_id = p.produto_id
+
+ORDER BY r.reposicao_id;

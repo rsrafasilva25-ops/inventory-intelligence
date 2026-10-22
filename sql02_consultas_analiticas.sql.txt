@@ -1,0 +1,171 @@
+
+/*
+Projeto: Inventory Intelligence
+Arquivo: 02_consultas_analiticas.sql
+Análise 1: Posição atual do estoque por produto.
+
+Objetivo:
+Calcular o saldo de estoque considerando as movimentações
+registradas e identificar produtos abaixo do estoque mínimo.
+*/
+
+SELECT
+    p.produto_id,
+    p.sku,
+    p.nome_produto,
+    p.categoria,
+    p.estoque_minimo,
+
+    COALESCE(
+        SUM(
+            CASE
+                WHEN m.tipo_movimento IN ('ENTRADA', 'ENTRADA_REPOSICAO')
+                    THEN m.quantidade
+                WHEN m.tipo_movimento IN ('SAIDA', 'SAIDA_VENDA')
+                    THEN -m.quantidade
+                ELSE 0
+            END
+        ),
+        0
+    ) AS saldo_atual,
+
+    CASE
+        WHEN COALESCE(
+            SUM(
+                CASE
+                    WHEN m.tipo_movimento IN ('ENTRADA', 'ENTRADA_REPOSICAO')
+                        THEN m.quantidade
+                    WHEN m.tipo_movimento IN ('SAIDA', 'SAIDA_VENDA')
+                        THEN -m.quantidade
+                    ELSE 0
+                END
+            ),
+            0
+        ) < p.estoque_minimo
+            THEN 'ABAIXO DO MINIMO'
+        ELSE 'ESTOQUE ADEQUADO'
+    END AS situacao_estoque
+
+FROM inventory.produtos p
+
+LEFT JOIN inventory.movimentacoes_estoque m
+    ON p.produto_id = m.produto_id
+
+GROUP BY
+    p.produto_id,
+    p.sku,
+    p.nome_produto,
+    p.categoria,
+    p.estoque_minimo
+
+ORDER BY saldo_atual ASC;
+
+
+
+
+
+-- ANÁLISE 2: VENDAS POR PRODUTO
+
+SELECT
+    p.nome_produto,
+    SUM(v.quantidade) AS unidades_vendidas,
+    SUM(v.quantidade * v.valor_unitario) AS faturamento_bruto
+FROM inventory.produtos p
+INNER JOIN inventory.vendas v
+    ON p.produto_id = v.produto_id
+WHERE v.data_venda >= '2026-09-01'
+  AND v.data_venda < '2026-10-21'
+GROUP BY p.nome_produto
+ORDER BY faturamento_bruto DESC;
+
+
+
+
+
+-- =====================================================
+-- ANÁLISE 3: COBERTURA ESTIMADA DO ESTOQUE
+-- =====================================================
+
+WITH vendas_periodo AS (
+    SELECT
+        produto_id,
+        SUM(quantidade) AS unidades_vendidas
+    FROM inventory.vendas
+    WHERE data_venda >= TIMESTAMP '2026-09-01'
+      AND data_venda < TIMESTAMP '2026-10-21'
+    GROUP BY produto_id
+),
+estoque_atual AS (
+    SELECT
+        p.produto_id,
+        p.nome_produto,
+        COALESCE(
+            SUM(
+                CASE
+                    WHEN m.tipo_movimento IN ('ENTRADA', 'ENTRADA_REPOSICAO')
+                        THEN m.quantidade
+                    WHEN m.tipo_movimento IN ('SAIDA', 'SAIDA_VENDA')
+                        THEN -m.quantidade
+                    ELSE 0
+                END
+            ),
+            0
+        ) AS saldo_atual
+    FROM inventory.produtos p
+    LEFT JOIN inventory.movimentacoes_estoque m
+        ON p.produto_id = m.produto_id
+    GROUP BY
+        p.produto_id,
+        p.nome_produto
+)
+SELECT
+    e.nome_produto,
+    e.saldo_atual,
+    COALESCE(v.unidades_vendidas, 0) AS unidades_vendidas,
+    ROUND(
+        e.saldo_atual::numeric
+        / NULLIF(v.unidades_vendidas, 0)
+        * 50,
+        1
+    ) AS cobertura_estimada_dias
+FROM estoque_atual e
+LEFT JOIN vendas_periodo v
+    ON e.produto_id = v.produto_id
+ORDER BY cobertura_estimada_dias ASC NULLS LAST;
+
+
+
+
+
+
+
+-- =====================================================
+-- ANÁLISE 4: REPOSIÇÕES PENDENTES E ATRASADAS
+-- Data de referência: 22/10/2026
+-- =====================================================
+
+SELECT
+    r.reposicao_id,
+    p.nome_produto,
+    r.data_pedido,
+    r.data_prevista,
+    r.status,
+    r.quantidade_pedida,
+    r.quantidade_recebida,
+    r.quantidade_pedida - r.quantidade_recebida
+        AS quantidade_pendente,
+    CASE
+        WHEN r.data_prevista < DATE '2026-10-22'
+         AND r.quantidade_pedida > r.quantidade_recebida
+            THEN 'ATRASADA'
+        WHEN r.quantidade_pedida > r.quantidade_recebida
+            THEN 'PENDENTE NO PRAZO'
+        ELSE 'RECEBIDA'
+    END AS situacao_reposicao
+FROM inventory.reposicoes r
+INNER JOIN inventory.produtos p
+    ON r.produto_id = p.produto_id
+WHERE r.quantidade_pedida > r.quantidade_recebida
+ORDER BY
+    r.data_prevista ASC NULLS LAST,
+    p.nome_produto;

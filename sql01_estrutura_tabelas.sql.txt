@@ -1,0 +1,18 @@
+
+/*
+Projeto: Inventory Intelligence
+Arquivo: 01_estrutura_tabelas.sql
+Objetivo: Consultar a estrutura das tabelas do projeto.
+*/
+
+SELECT
+    table_schema AS esquema,
+    table_name AS tabela,
+    column_name AS coluna,
+    data_type AS tipo_dado,
+    is_nullable AS aceita_nulo
+FROM information_schema.columns
+WHERE table_schema = 'inventory'
+ORDER BY
+    table_name,
+    ordinal_position;
